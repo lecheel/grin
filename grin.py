@@ -144,11 +144,14 @@ def default_options():
         show_match = True,
         show_filename = True,
         show_emacs = False,
+        show_fte = False,
+        show_vim = False,
         skip_hidden_dirs=False,
         skip_hidden_files=False,
         skip_backup_files=True,
         skip_dirs=set(),
         skip_exts=set(),
+        skip_files=set(),
         skip_symlink_dirs=True,
         skip_symlink_files=True,
         binary_bytes=4096,
@@ -429,18 +432,27 @@ class GrepText(object):
         if len(context_lines) == 0:
             return ''
         lines = []
+        curdir=os.getcwd()
         if not self.options.show_match:
             # Just show the filename if we match.
-            line = '%s\n' % filename
+            line = '%s \n' % filename
             lines.append(line)
         else:
-            if self.options.show_filename and filename is not None and not self.options.show_emacs:
-                line = '%s:\n' % filename
+            if self.options.show_filename and filename is not None and not self.options.show_emacs and not self.options.show_vim:
+                if not self.options.show_fte:
+                    line = '%s:\n' % filename
+                else:
+                    line = 'File: %s%s\n' % (curdir,filename[1:])
+#                    line = 'File: %s\n' % filename
                 if self.options.use_color:
                     line = colorize(line, **COLOR_STYLE.get('filename', {}))
                 lines.append(line)
             if self.options.show_emacs:
                 template = '%(filename)s:%(lineno)s: %(line)s'
+            elif self.options.show_fte:
+                template = '%(lineno)5s%(sep)s %(line)s'
+            elif self.options.show_vim:
+                template = '%(filename)s +%(lineno)s: %(line)s'
             elif self.options.show_line_numbers:
                 template = '%(lineno)5s %(sep)s %(line)s'
             else:
@@ -535,11 +547,13 @@ class FileRecognizer(object):
 
     def __init__(self, skip_hidden_dirs=False, skip_hidden_files=False,
                  skip_backup_files=False, skip_dirs=set(), skip_exts=set(),
+                 skip_files=set(),
                  skip_symlink_dirs=True, skip_symlink_files=True,
                  binary_bytes=4096):
         self.skip_hidden_dirs = skip_hidden_dirs
         self.skip_hidden_files = skip_hidden_files
         self.skip_backup_files = skip_backup_files
+        self.skip_files = skip_files
         self.skip_dirs = skip_dirs
 
         # For speed, split extensions into the simple ones, that are
@@ -691,6 +705,8 @@ class FileRecognizer(object):
         """ Determine what to do with a file.
         """
         basename = os.path.split(filename)[-1]
+        if self.skip_files:
+            return 'skip'
         if self.skip_hidden_files and basename.startswith('.'):
             return 'skip'
         if self.skip_backup_files and basename.endswith('~'):
@@ -784,6 +800,12 @@ def get_grin_arg_parser(parser=None):
     parser.add_argument('--emacs', action='store_true',
         dest='show_emacs',
         help="print the filename with every match for easier parsing by e.g. Emacs")
+    parser.add_argument('--fte', action='store_true',
+        dest='show_fte',
+        help="print the filename with every match for easier parsing by e.g. FTE")
+    parser.add_argument('--vim', action='store_true',
+        dest='show_vim',
+        help="print the filename with every match for easier parsing by e.g. VIM foo +nn")
     parser.add_argument('-l', '--files-with-matches', action='store_false',
         dest='show_match',
         help="show only the filenames and not the texts of the matches")
@@ -800,6 +822,9 @@ def get_grin_arg_parser(parser=None):
     parser.add_argument('-s', '--no-skip-hidden-files',
         dest='skip_hidden_files', action='store_false',
         help="do not skip .hidden files")
+    parser.add_argument('--sfiles', 
+        default='tag,TAGS',    
+        help="skip special files [default]")
     parser.add_argument('--skip-hidden-files',
         dest='skip_hidden_files', action='store_true', default=True,
         help="do skip .hidden files [default]")
@@ -822,7 +847,7 @@ def get_grin_arg_parser(parser=None):
         action='store_const', const='',
         help="do not skip any directories")
     parser.add_argument('-e', '--skip-exts',
-        default='.pyc,.pyo,.so,.o,.a,.tgz,.tar.gz,.rar,.zip,~,#,.bak,.png,.jpg,.gif,.bmp,.tif,.tiff,.pyd,.dll,.exe,.obj,.lib',
+        default='.pyc,.pyo,.so,.o,.a,.tgz,.tar.gz,.rar,.zip,~,#,.bak,.png,.jpg,.gif,.bmp,.tif,.tiff,.pyd,.dll,.exe,.obj,.lib,.o.d,.d',
         help="comma-separated list of file extensions to skip [default=%(default)r]")
     parser.add_argument('-E', '--no-skip-exts', dest='skip_exts',
         action='store_const', const='',
@@ -913,8 +938,8 @@ def get_recognizer(args):
         skip_hidden_files=args.skip_hidden_files,
         skip_backup_files=args.skip_backup_files,
         skip_hidden_dirs=args.skip_hidden_dirs,
-        skip_dirs=skip_dirs,
-        skip_exts=skip_exts,
+        skip_dirs=set(args.skip_dirs.split(',')),
+        skip_exts=set(args.skip_exts.split(',')),
         skip_symlink_files=not args.follow_symlinks,
         skip_symlink_dirs=not args.follow_symlinks,
     )
